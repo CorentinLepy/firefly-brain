@@ -33,7 +33,7 @@ services:
     build: ./frontend
     container_name: firefly-brain-web
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8010
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://192.168.1.49:8010}
     depends_on:
       - firefly-brain-api
     ports:

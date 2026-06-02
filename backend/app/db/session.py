@@ -19,4 +19,5 @@ def init_db() -> None:
     from app.modules.assets.models import Asset
     from app.modules.liabilities.models import Liability
     from app.modules.transactions.models import CachedTransaction
+    from app.modules.goals.models import Goal
     Base.metadata.create_all(bind=engine)

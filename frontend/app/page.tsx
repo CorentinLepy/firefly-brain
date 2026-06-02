@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { StatCard } from "../components/StatCard";
 import { apiGet } from "../lib/api";
 
@@ -87,11 +88,12 @@ export default async function Home() {
   return (
     <main className="page">
       <nav className="topnav">
-        <strong>Firefly Brain V2</strong>
-        <span>Dashboard</span>
-        <span>Insights</span>
-        <span>Abonnements</span>
-        <span>Objectifs</span>
+        <strong>Firefly Brain V2.1.1</strong>
+        <Link href="/">Dashboard</Link>
+        <Link href="/abonnements">Abonnements</Link>
+        <Link href="/alertes">Alertes</Link>
+        <Link href="/patrimoine">Patrimoine</Link>
+        <Link href="/transactions">Transactions</Link>
       </nav>
 
       <section className="header">

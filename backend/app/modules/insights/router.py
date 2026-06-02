@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Query
 from app.modules.firefly.client import FireflyClient
-from app.services.finance import build_financial_summary, detect_subscriptions, flatten_transactions, month_bounds
+from app.services.finance import build_financial_summary, detect_subscriptions, flatten_transactions, month_bounds, optimization_opportunities
 
 router = APIRouter()
 
@@ -22,29 +22,7 @@ async def overview(
     summary = build_financial_summary(accounts, transactions)
     subscriptions = detect_subscriptions(transactions)
 
-    opportunities = []
-    for category in summary["top_categories"][:5]:
-        amount = category["amount"]
-        potential = round(amount * 0.1, 2)
-        if potential > 10:
-            opportunities.append(
-                {
-                    "type": "category_reduction",
-                    "title": f"Optimiser {category['category']}",
-                    "message": f"Une réduction de 10 % représenterait environ {potential} € sur la période.",
-                    "potential_saving": potential,
-                }
-            )
-
-    for subscription in subscriptions[:5]:
-        opportunities.append(
-            {
-                "type": "subscription_review",
-                "title": f"Revoir {subscription['merchant']}",
-                "message": f"Coût annuel estimé : {subscription['yearly_cost']} €.",
-                "potential_saving": subscription["yearly_cost"],
-            }
-        )
+    opportunities = optimization_opportunities(summary, subscriptions)
 
     return {
         "period": {"start": start, "end": end},

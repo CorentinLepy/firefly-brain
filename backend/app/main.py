@@ -12,8 +12,9 @@ from app.modules.subscriptions.router import router as subscriptions_router
 from app.modules.alerts.router import router as alerts_router
 from app.modules.insights.router import router as insights_router
 from app.modules.goals.router import router as goals_router
+from app.modules.wealth.router import router as wealth_router
 
-app = FastAPI(title="Firefly Brain API", version="0.2.0")
+app = FastAPI(title="Firefly Brain API", version="0.2.1")
 
 app.add_middleware(
     CORSMiddleware,
@@ -44,3 +45,5 @@ app.include_router(subscriptions_router, prefix="/api/subscriptions", tags=["Sub
 app.include_router(alerts_router, prefix="/api/alerts", tags=["Alerts"])
 app.include_router(insights_router, prefix="/api/insights", tags=["Insights"])
 app.include_router(goals_router, prefix="/api/goals", tags=["Goals"])
+
+app.include_router(wealth_router, prefix="/api/wealth", tags=["Wealth"])

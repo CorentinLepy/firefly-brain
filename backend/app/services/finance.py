@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+import re
 from collections import defaultdict
-from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from statistics import mean
 from typing import Any
+
+NO_NAME_VALUES = {"", "(no name)", "no name", "inconnu", "unknown", "none", "null"}
+SUBSCRIPTION_EXCLUDED_KEYWORDS = [
+    "pret", "prêt", "credit", "crédit", "dette", "mortgage", "loan", "immo", "ptz",
+    "familial", "virement", "transfert", "remboursement", "remise", "cotisation bancaire",
+    "achat-exceptionnel", "freedom bike", "moto", "vehicule", "véhicule", "investissement",
+]
+EXPENSE_EXCLUDED_FROM_OPTIMIZATION = {"crédit", "credit", "moto / véhicule", "moto / vehicule", "investissements"}
 
 
 def parse_amount(value: str | int | float | None) -> Decimal:
@@ -56,6 +64,46 @@ def flatten_transactions(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return items
 
 
+def clean_text(value: str | None) -> str:
+    if not value:
+        return ""
+    return " ".join(str(value).replace("\n", " ").split()).strip()
+
+
+def normalize_key(value: str | None) -> str:
+    text = clean_text(value).lower()
+    text = text.replace("é", "e").replace("è", "e").replace("ê", "e").replace("à", "a").replace("ù", "u").replace("ç", "c")
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return " ".join(text.split())
+
+
+def is_empty_label(value: str | None) -> bool:
+    return normalize_key(value) in NO_NAME_VALUES
+
+
+def best_merchant(tx: dict[str, Any]) -> str:
+    """Return a useful merchant label, avoiding Firefly's generic '(no name)' expense account."""
+    destination = clean_text(tx.get("destination_name"))
+    source = clean_text(tx.get("source_name"))
+    description = clean_text(tx.get("description"))
+    notes = clean_text(tx.get("notes"))
+
+    if tx.get("type") == "deposit":
+        if source and not is_empty_label(source):
+            return source
+        return description or destination or "Inconnu"
+
+    if destination and not is_empty_label(destination):
+        return destination
+    if description and not is_empty_label(description):
+        return description
+    if notes and not is_empty_label(notes):
+        return notes[:80]
+    if source and not is_empty_label(source):
+        return source
+    return "Inconnu"
+
+
 def simplified_transactions(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for tx in flatten_transactions(groups):
@@ -69,6 +117,7 @@ def simplified_transactions(groups: list[dict[str, Any]]) -> list[dict[str, Any]
                 "currency": tx.get("currency_code"),
                 "source": tx.get("source_name"),
                 "destination": tx.get("destination_name"),
+                "merchant": best_merchant(tx),
                 "category": tx.get("category_name"),
                 "budget": tx.get("budget_name"),
                 "tags": tx.get("tags") or [],
@@ -91,8 +140,8 @@ def build_financial_summary(accounts: list[dict[str, Any]], transactions: list[d
     for tx in transactions:
         amount = abs(parse_amount(tx.get("amount")))
         tx_type = tx.get("type")
-        category = tx.get("category_name") or "Sans categorie"
-        merchant = tx.get("destination_name") or tx.get("source_name") or "Inconnu"
+        category = tx.get("category_name") or "Sans catégorie"
+        merchant = best_merchant(tx)
         tx_date = (tx.get("date") or "")[:10]
 
         if tx_type != "transfer" and not tx.get("category_name"):
@@ -178,18 +227,57 @@ def build_financial_summary(accounts: list[dict[str, Any]], transactions: list[d
     }
 
 
+def is_subscription_candidate(tx: dict[str, Any], amount: float, merchant: str) -> tuple[bool, str | None]:
+    category = normalize_key(tx.get("category_name"))
+    budget = normalize_key(tx.get("budget_name"))
+    source = normalize_key(tx.get("source_name"))
+    destination = normalize_key(tx.get("destination_name"))
+    description = normalize_key(tx.get("description"))
+    notes = normalize_key(tx.get("notes"))
+    tags = " ".join(normalize_key(tag) for tag in (tx.get("tags") or []))
+    source_type = normalize_key(tx.get("source_type"))
+    destination_type = normalize_key(tx.get("destination_type"))
+    haystack = " ".join([category, budget, source, destination, description, notes, tags, source_type, destination_type, normalize_key(merchant)])
+
+    if tx.get("type") != "withdrawal":
+        return False, "not_withdrawal"
+    if amount <= 0:
+        return False, "invalid_amount"
+    if amount >= 500:
+        return False, "amount_too_high"
+    if "debt" in source_type or "debt" in destination_type:
+        return False, "debt_account"
+    if any(keyword in haystack for keyword in SUBSCRIPTION_EXCLUDED_KEYWORDS):
+        return False, "excluded_keyword"
+    if category in {"credit", "crédit", "investissements", "moto vehicule", "moto véhicule"}:
+        return False, "excluded_category"
+    return True, None
+
+
 def detect_subscriptions(transactions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    ignored = 0
     for tx in transactions:
-        if tx.get("type") != "withdrawal":
-            continue
-        merchant = tx.get("destination_name") or tx.get("description") or "Inconnu"
         amount = money_float(abs(parse_amount(tx.get("amount"))))
-        tx_date = parse_date(tx.get("date"))
-        if not tx_date or amount <= 0:
+        merchant = best_merchant(tx)
+        allowed, _reason = is_subscription_candidate(tx, amount, merchant)
+        if not allowed:
+            ignored += 1
             continue
-        key = f"{merchant.strip().lower()}:{round(amount, 2)}"
-        groups[key].append({"merchant": merchant, "amount": amount, "date": tx_date, "description": tx.get("description")})
+        tx_date = parse_date(tx.get("date"))
+        if not tx_date:
+            continue
+        key = f"{normalize_key(merchant)}:{round(amount, 2)}"
+        groups[key].append(
+            {
+                "merchant": merchant,
+                "amount": amount,
+                "date": tx_date,
+                "description": tx.get("description"),
+                "category": tx.get("category_name"),
+                "budget": tx.get("budget_name"),
+            }
+        )
 
     results: list[dict[str, Any]] = []
     for entries in groups.values():
@@ -213,7 +301,10 @@ def detect_subscriptions(transactions: list[dict[str, Any]]) -> list[dict[str, A
             continue
         last_date = max(dates)
         amount = Decimal(str(entries[-1]["amount"]))
-        confidence = min(95, 55 + len(entries) * 10)
+        confidence = min(98, 55 + len(entries) * 10)
+        # Reduce confidence for generic labels even after merchant cleanup.
+        if is_empty_label(entries[-1]["merchant"]):
+            confidence -= 20
         next_expected = last_date + timedelta(days=round(avg_gap))
         results.append(
             {
@@ -224,7 +315,9 @@ def detect_subscriptions(transactions: list[dict[str, Any]]) -> list[dict[str, A
                 "last_seen": last_date.isoformat(),
                 "next_expected": next_expected.isoformat(),
                 "yearly_cost": money_float(amount * Decimal(yearly_multiplier)),
-                "confidence": confidence,
+                "confidence": max(confidence, 0),
+                "category": entries[-1].get("category"),
+                "budget": entries[-1].get("budget"),
             }
         )
 
@@ -241,7 +334,39 @@ def detect_alerts(summary: dict[str, Any], subscriptions: list[dict[str, Any]]) 
         alerts.append({"type": "low_savings", "severity": "medium", "title": "Taux d'épargne faible", "message": "Le taux d'épargne est inférieur à 10 % sur la période."})
     if summary.get("net_worth", 0) < 0:
         alerts.append({"type": "negative_net_worth", "severity": "medium", "title": "Patrimoine net négatif", "message": "Les dettes incluses dans le patrimoine dépassent les actifs inclus."})
-    expensive_subscriptions = [s for s in subscriptions if s.get("yearly_cost", 0) >= 300]
+    expensive_subscriptions = [s for s in subscriptions if s.get("yearly_cost", 0) >= 300 and s.get("confidence", 0) >= 75]
     if expensive_subscriptions:
         alerts.append({"type": "subscriptions", "severity": "low", "title": "Abonnements coûteux détectés", "message": f"{len(expensive_subscriptions)} abonnement(s) estimés à plus de 300 €/an."})
     return alerts
+
+
+def optimization_opportunities(summary: dict[str, Any], subscriptions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    opportunities: list[dict[str, Any]] = []
+    for category in summary.get("top_categories", [])[:8]:
+        category_key = normalize_key(category.get("category"))
+        if category_key in EXPENSE_EXCLUDED_FROM_OPTIMIZATION:
+            continue
+        amount = float(category.get("amount") or 0)
+        potential = round(amount * 0.1, 2)
+        if potential > 10:
+            opportunities.append(
+                {
+                    "type": "category_reduction",
+                    "title": f"Optimiser {category['category']}",
+                    "message": f"Une réduction de 10 % représenterait environ {potential} € sur la période.",
+                    "potential_saving": potential,
+                }
+            )
+
+    for subscription in subscriptions[:6]:
+        if subscription.get("confidence", 0) < 75:
+            continue
+        opportunities.append(
+            {
+                "type": "subscription_review",
+                "title": f"Revoir {subscription['merchant']}",
+                "message": f"Coût annuel estimé : {subscription['yearly_cost']} €.",
+                "potential_saving": subscription["yearly_cost"],
+            }
+        )
+    return opportunities[:10]

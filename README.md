@@ -1,16 +1,16 @@
-# Firefly Brain V2
+# Firefly Brain V2.1
 
 Firefly Brain est une surcouche intelligente et moderne pour Firefly III. L'objectif est de garder Firefly III comme moteur financier principal et d'ajouter un cockpit de pilotage personnel : patrimoine, cash-flow, alertes, abonnements, objectifs et pistes d'optimisation.
 
-## Nouveautés V2
+## Nouveautés V2.1
 
 - Dashboard V2 avec score financier simple.
 - Endpoints d'insights financiers.
-- Détection heuristique des abonnements récurrents.
+- Détection heuristique des abonnements récurrents améliorée : exclusion des crédits, prêts, dettes, achats exceptionnels et meilleurs libellés marchands.
 - Alertes intelligentes simples : cash-flow négatif, transactions non catégorisées, taux d'épargne faible, patrimoine net négatif, abonnements coûteux.
 - Objectifs financiers persistés dans PostgreSQL.
 - API transactions simplifiée.
-- Frontend modernisé avec sections : alertes, optimisations, abonnements, objectifs.
+- Frontend modernisé avec pages dédiées : dashboard, abonnements, alertes, patrimoine, transactions.
 - Docker Compose sans secret en dur, avec `.env` racine.
 
 ## Architecture
@@ -86,6 +86,7 @@ GET /api/alerts?start=2026-05-01&end=2026-05-31
 GET /api/insights/overview?start=2026-05-01&end=2026-05-31
 GET /api/goals
 POST /api/goals
+GET /api/wealth/summary
 ```
 
 ## Mise à jour depuis GitHub sur Unraid
@@ -118,6 +119,6 @@ Ne versionne jamais :
 - mots de passe PostgreSQL
 - secrets de notification
 
-## Limites V2
+## Limites V2.1
 
-La V2 reste un MVP évolutif. La détection d'abonnements est heuristique, les alertes sont explicables mais simples, et l'IA conversationnelle n'est pas encore intégrée. Firefly III reste la source de vérité pour les transactions, budgets, comptes et catégories.
+La V2.1 reste un MVP évolutif. La détection d'abonnements est heuristique, les alertes sont explicables mais simples, et l'IA conversationnelle n'est pas encore intégrée. Firefly III reste la source de vérité pour les transactions, budgets, comptes et catégories.

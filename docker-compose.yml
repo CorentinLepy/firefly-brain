@@ -1,0 +1,43 @@
+services:
+  firefly-brain-db:
+    image: postgres:16-alpine
+    container_name: firefly-brain-db
+    environment:
+      POSTGRES_DB: firefly_brain
+      POSTGRES_USER: firefly_brain
+      POSTGRES_PASSWORD: change_me_strong_password
+    volumes:
+      - firefly_brain_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U firefly_brain -d firefly_brain"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5434:5432"
+
+  firefly-brain-api:
+    build: ./backend
+    container_name: firefly-brain-api
+    env_file:
+      - ./backend/.env
+    depends_on:
+      firefly-brain-db:
+        condition: service_healthy
+    ports:
+      - "8010:8000"
+    volumes:
+      - ./backend/app:/app/app
+
+  firefly-brain-web:
+    build: ./frontend
+    container_name: firefly-brain-web
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8010
+    depends_on:
+      - firefly-brain-api
+    ports:
+      - "3010:3000"
+
+volumes:
+  firefly_brain_db:
